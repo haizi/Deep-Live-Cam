@@ -2,6 +2,7 @@
 
 import os
 import sys
+import argparse
 
 # Add the project root to PATH so bundled ffmpeg/ffprobe are found
 project_root = os.path.dirname(os.path.abspath(__file__))
@@ -71,5 +72,24 @@ platform_info.print_banner()
 
 from modules import core
 
+
+def main():
+    parser = argparse.ArgumentParser(description="Deep-Live-Cam")
+    parser.add_argument("--web", action="store_true", help="启动 Web 服务")
+    parser.add_argument("--port", type=int, default=8000, help="Web 服务端口")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Web 服务主机")
+
+    args = parser.parse_args()
+
+    if args.web:
+        # 启动 Web 服务
+        from web_api import app
+        import uvicorn
+        uvicorn.run(app, host=args.host, port=args.port)
+    else:
+        # 原有启动方式
+        core.run()
+
+
 if __name__ == '__main__':
-    core.run()
+    main()

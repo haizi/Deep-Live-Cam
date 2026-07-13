@@ -1,0 +1,265 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>face Web</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: white;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .video-container {
+            flex: 1;
+            min-width: 400px;
+        }
+        video, canvas {
+            width: 100%;
+            border-radius: 8px;
+            border: 2px solid #16213e;
+        }
+        .controls {
+            margin: 20px 0;
+            padding: 20px;
+            background: #16213e;
+            border-radius: 8px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .btn-primary {
+            background: #0f3460;
+            color: white;
+        }
+        .btn-success {
+            background: #00b894;
+            color: white;
+        }
+        .btn-danger {
+            background: #d63031;
+            color: white;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status-active {
+            background: #00b894;
+        }
+        .status-inactive {
+            background: #636e72;
+        }
+        #fps {
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>face change</h1>
+
+    <div class="controls">
+        <h3>设置源脸</h3>
+        <input type="file" id="sourceImage" accept="image/*">
+        <button class="btn-primary" onclick="setSourceFace()">上传源脸</button>
+        <span id="sourceStatus" class="status status-inactive">未设置源脸</span>
+    </div>
+
+    <div class="controls">
+        <button class="btn-success" onclick="startCamera()">开启摄像头</button>
+        <button class="btn-danger" onclick="stopCamera()">关闭摄像头</button>
+        <button class="btn-primary" onclick="startSwap()">开始换脸</button>
+        <button class="btn-danger" onclick="stopSwap()">停止换脸</button>
+        <span id="fps">FPS: 0</span>
+    </div>
+
+    <div class="container">
+        <div class="video-container">
+            <h3>原始画面</h3>
+            <video id="inputVideo" autoplay playsinline></video>
+        </div>
+        <div class="video-container">
+            <h3>换脸结果</h3>
+            <canvas id="outputCanvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let videoStream = null;
+        let isSwapping = false;
+        let isProcessing = false;
+        let fpsCounter = 0;
+        let lastFpsTime = Date.now();
+        let sourceFaceSet = false;
+        let video = null;
+        let canvas = null;
+        let ctx = null;
+
+        function initCanvas() {
+            video = document.getElementById('inputVideo');
+            canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            ctx = canvas.getContext('2d');
+        }
+
+        async function setSourceFace() {
+            const fileInput = document.getElementById('sourceImage');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('请先选择一张图片');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const response = await fetch('/set_source_face', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            image: e.target.result
+                        })
+                    });
+
+                    if (response.ok) {
+                        sourceFaceSet = true;
+                        document.getElementById('sourceStatus').textContent = '源脸已设置';
+                        document.getElementById('sourceStatus').className = 'status status-active';
+                    }
+                } catch (error) {
+                    console.error('Error setting source face:', error);
+                    alert('设置源脸失败');
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function startCamera() {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        frameRate: { ideal: 30 }
+                    }
+                });
+                document.getElementById('inputVideo').srcObject = videoStream;
+                initCanvas();
+                console.log('Camera started');
+            } catch (error) {
+                console.error('Error starting camera:', error);
+                alert('无法开启摄像头');
+            }
+        }
+
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+                document.getElementById('inputVideo').srcObject = null;
+            }
+            stopSwap();
+        }
+
+        function startSwap() {
+            if (!sourceFaceSet) {
+                alert('请先设置源脸');
+                return;
+            }
+            if (!videoStream) {
+                alert('请先开启摄像头');
+                return;
+            }
+
+            isSwapping = true;
+            connectWebSocket();
+        }
+
+        function stopSwap() {
+            isSwapping = false;
+            isProcessing = false;
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8000/ws/video');
+
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+                sendNextFrame();
+            };
+
+            ws.onmessage = function(event) {
+                const outputCanvas = document.getElementById('outputCanvas');
+                const outputCtx = outputCanvas.getContext('2d');
+                const img = new Image();
+                img.onload = function() {
+                    outputCanvas.width = img.width;
+                    outputCanvas.height = img.height;
+                    outputCtx.drawImage(img, 0, 0);
+
+                    fpsCounter++;
+                    const now = Date.now();
+                    if (now - lastFpsTime >= 1000) {
+                        document.getElementById('fps').textContent = `FPS: ${fpsCounter}`;
+                        fpsCounter = 0;
+                        lastFpsTime = now;
+                    }
+
+                    isProcessing = false;
+                    sendNextFrame();
+                };
+                img.src = event.data;
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                isProcessing = false;
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket disconnected');
+                isProcessing = false;
+                if (isSwapping) {
+                    setTimeout(connectWebSocket, 1000);
+                }
+            };
+        }
+
+        function sendNextFrame() {
+            if (!isSwapping || !ws || ws.readyState !== WebSocket.OPEN || isProcessing) {
+                return;
+            }
+
+            isProcessing = true;
+
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const base64 = canvas.toDataURL('image/jpeg', 0.8);
+
+            ws.send(base64);
+        }
+    </script>
+</body>
+</html>
