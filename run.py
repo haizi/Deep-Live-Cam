@@ -78,16 +78,24 @@ def main():
     parser.add_argument("--web", action="store_true", help="启动 Web 服务")
     parser.add_argument("--port", type=int, default=8000, help="Web 服务端口")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Web 服务主机")
+    
+    parser.add_argument("--execution-provider", dest="execution_provider", type=str, nargs='+',
+                        choices=['cpu', 'cuda', 'directml', 'openvino', 'coreml', 'rocm'],
+                        help="指定执行提供程序")
+    parser.add_argument("--mouth-mask", action="store_true", help="启用嘴部遮罩")
+    parser.add_argument("--many-faces", action="store_true", help="处理多个人脸")
+    parser.add_argument("--opacity", type=float, default=1.0, help="换脸透明度 (0.0-1.0)")
+    parser.add_argument("--poisson-blend", action="store_true", help="启用泊松融合")
+    parser.add_argument("--sharpness", type=float, default=0.0, help="锐化程度")
 
     args = parser.parse_args()
 
     if args.web:
-        # 启动 Web 服务
-        from web_api import app
+        import web_api
+        web_api.set_web_args(args)
         import uvicorn
-        uvicorn.run(app, host=args.host, port=args.port)
+        uvicorn.run(web_api.app, host=args.host, port=args.port)
     else:
-        # 原有启动方式
         core.run()
 
 
