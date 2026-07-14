@@ -203,7 +203,9 @@
         }
 
         function connectWebSocket() {
-            ws = new WebSocket('ws://u98800-849f-6a74ffe1.westb.seetacloud.com:8443/ws/video');
+            // 获取当前页面域名端口
+            const host = window.location.host;
+            ws = new WebSocket(`ws://${host}/ws/video`);
 
             ws.onopen = function() {
                 console.log('WebSocket connected');
