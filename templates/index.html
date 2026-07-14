@@ -204,7 +204,6 @@
         }
 
         function connectWebSocket() {
-            // 获取当前页面域名端口
             const host = window.location.host;
             ws = new WebSocket(`ws://${host}/ws/video`);
 
@@ -233,7 +232,8 @@
                     isProcessing = false;
                     sendNextFrame();
                 };
-                img.src = event.data;
+                const blob = new Blob([event.data], { type: 'image/jpeg' });
+                img.src = URL.createObjectURL(blob);
             };
 
             ws.onerror = function(error) {
@@ -259,9 +259,9 @@
 
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            const base64 = canvas.toDataURL('image/jpeg', 0.8);
-
-            ws.send(base64);
+            canvas.toBlob(function(blob) {
+                ws.send(blob);
+            }, 'image/jpeg', 0.6);
         }
     </script>
 </body>
