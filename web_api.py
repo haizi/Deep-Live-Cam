@@ -10,6 +10,7 @@ import onnxruntime
 
 from modules.processors.frame import face_swapper
 from modules.face_analyser import get_one_face
+from modules.core import decode_execution_providers, suggest_default_execution_provider
 import modules.globals
 
 app = FastAPI(title="Deep-Live-Cam Web API")
@@ -24,7 +25,12 @@ def init_globals():
     if _models_loaded:
         return
 
-    modules.globals.execution_providers = [suggest_execution_provider()]
+    if not modules.globals.execution_providers:
+        best_provider = suggest_default_execution_provider()
+        modules.globals.execution_providers = decode_execution_providers([best_provider])
+    
+    print(f"[INFO] Using execution providers: {modules.globals.execution_providers}")
+    
     modules.globals.frame_processors = ['face_swapper']
     modules.globals.many_faces = False
     modules.globals.opacity = 1.0
@@ -37,15 +43,6 @@ def init_globals():
     face_swapper.pre_start()
 
     _models_loaded = True
-
-
-def suggest_execution_provider() -> str:
-    """Pick the best available provider: cuda > rocm > coreml > cpu."""
-    available = [p.replace('ExecutionProvider', '').lower() for p in onnxruntime.get_available_providers()]
-    for pref in ('cuda', 'rocm', 'coreml', 'dml'):
-        if pref in available:
-            return pref
-    return 'cpu'
 
 
 @app.on_event("startup")
